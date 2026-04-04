@@ -11,7 +11,14 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 import database as db
-from models import DocumentCreate, DocumentOut, DocumentDetail, TitleUpdate, RevisionOut, RevisionCreate
+from models import (
+    DocumentCreate,
+    DocumentOut,
+    DocumentDetail,
+    TitleUpdate,
+    RevisionOut,
+    RevisionCreate,
+)
 from ws_hub import hub
 
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await db.get_pool()          # warm-up connection pool
+    # Do not block startup on database readiness; connect lazily on first request.
+    logger.info("Skipping DB warm-up at startup; pool will initialize lazily")
     yield
     await db.close_pool()
 
@@ -43,12 +51,14 @@ app.add_middleware(
 
 # ── Health ──────────────────────────────────────────────────────────────────
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
 # ── Documents ────────────────────────────────────────────────────────────────
+
 
 @app.get("/documents", response_model=list[DocumentOut])
 async def list_documents():
@@ -89,6 +99,7 @@ async def delete_document(doc_id: str):
 
 # ── Revisions ────────────────────────────────────────────────────────────────
 
+
 @app.get("/documents/{doc_id}/revisions", response_model=list[RevisionOut])
 async def list_revisions(doc_id: str):
     return await db.list_revisions(doc_id)
@@ -98,6 +109,7 @@ async def list_revisions(doc_id: str):
 async def create_revision(doc_id: str, body: RevisionCreate):
     # Grab current Yjs state from the in-memory hub (or DB fallback)
     from ws_hub import hub as _hub
+
     async with _hub._lock:
         room = _hub._rooms.get(doc_id)
     if room:
@@ -116,6 +128,7 @@ async def get_revision(revision_id: str):
         raise HTTPException(404, "Revision not found")
     # Return snapshot as base64 for the frontend to decode
     import base64
+
     snapshot_b64 = base64.b64encode(rev["ydoc_snapshot"]).decode()
     return {
         "id": rev["id"],
@@ -138,6 +151,7 @@ async def delete_revision_route(revision_id: str):
 
 # ── WebSocket ────────────────────────────────────────────────────────────────
 
+
 @app.websocket("/ws/{doc_id}")
 async def websocket_endpoint(websocket: WebSocket, doc_id: str):
     await websocket.accept()
@@ -149,5 +163,6 @@ async def websocket_endpoint(websocket: WebSocket, doc_id: str):
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)

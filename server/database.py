@@ -10,14 +10,23 @@ logger = logging.getLogger(__name__)
 _pool: Optional[asyncpg.Pool] = None
 
 
+def _dsn_with_sslmode() -> str:
+    dsn = os.environ["DATABASE_URL"]
+    if "sslmode=" in dsn:
+        return dsn
+    sep = "&" if "?" in dsn else "?"
+    return f"{dsn}{sep}sslmode=require"
+
+
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
         _pool = await asyncpg.create_pool(
-            dsn=os.environ["DATABASE_URL"],
-            min_size=2,
-            max_size=10,
-            command_timeout=30,
+            dsn=_dsn_with_sslmode(),
+            min_size=int(os.getenv("DB_POOL_MIN", "0")),
+            max_size=int(os.getenv("DB_POOL_MAX", "5")),
+            command_timeout=float(os.getenv("DB_COMMAND_TIMEOUT", "30")),
+            timeout=float(os.getenv("DB_CONNECT_TIMEOUT", "10")),
         )
     return _pool
 
@@ -30,6 +39,7 @@ async def close_pool():
 
 
 # ── Documents ───────────────────────────────────────────────────────────────
+
 
 async def list_documents() -> list[dict]:
     pool = await get_pool()
@@ -61,7 +71,8 @@ async def update_document_title(doc_id: str, title: str):
     pool = await get_pool()
     await pool.execute(
         "UPDATE documents SET title=$1 WHERE id=$2::uuid",
-        title, doc_id,
+        title,
+        doc_id,
     )
 
 
@@ -69,7 +80,8 @@ async def save_doc_state(doc_id: str, state: bytes):
     pool = await get_pool()
     await pool.execute(
         "UPDATE documents SET ydoc_state=$1 WHERE id=$2::uuid",
-        state, doc_id,
+        state,
+        doc_id,
     )
 
 
@@ -94,13 +106,19 @@ async def delete_document(doc_id: str):
 
 # ── Revisions ───────────────────────────────────────────────────────────────
 
-async def save_revision(doc_id: str, snapshot: bytes, author: str = "", description: str = "") -> dict:
+
+async def save_revision(
+    doc_id: str, snapshot: bytes, author: str = "", description: str = ""
+) -> dict:
     pool = await get_pool()
     row = await pool.fetchrow(
         """INSERT INTO revisions (doc_id, ydoc_snapshot, author, description)
            VALUES ($1::uuid, $2, $3, $4)
            RETURNING id::text, doc_id::text, author, description, created_at""",
-        doc_id, snapshot, author, description,
+        doc_id,
+        snapshot,
+        author,
+        description,
     )
     return dict(row)
 
@@ -122,6 +140,7 @@ async def get_revision(revision_id: str) -> Optional[dict]:
         revision_id,
     )
     return dict(row) if row else None
+
 
 async def delete_revision(revision_id: str):
     pool = await get_pool()
