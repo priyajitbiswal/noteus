@@ -10,6 +10,16 @@ logger = logging.getLogger(__name__)
 _pool: Optional[asyncpg.Pool] = None
 
 
+def _pool_kwargs() -> dict:
+    return {
+        "dsn": _dsn_with_sslmode(),
+        "min_size": int(os.getenv("DB_POOL_MIN", "0")),
+        "max_size": int(os.getenv("DB_POOL_MAX", "5")),
+        "command_timeout": float(os.getenv("DB_COMMAND_TIMEOUT", "60")),
+        "timeout": float(os.getenv("DB_CONNECT_TIMEOUT", "30")),
+    }
+
+
 def _dsn_with_sslmode() -> str:
     dsn = os.environ["DATABASE_URL"]
     if "sslmode=" in dsn:
@@ -21,13 +31,11 @@ def _dsn_with_sslmode() -> str:
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(
-            dsn=_dsn_with_sslmode(),
-            min_size=int(os.getenv("DB_POOL_MIN", "0")),
-            max_size=int(os.getenv("DB_POOL_MAX", "5")),
-            command_timeout=float(os.getenv("DB_COMMAND_TIMEOUT", "30")),
-            timeout=float(os.getenv("DB_CONNECT_TIMEOUT", "10")),
-        )
+        try:
+            _pool = await asyncpg.create_pool(**_pool_kwargs())
+        except TimeoutError:
+            logger.warning("DB pool connect timed out; retrying once")
+            _pool = await asyncpg.create_pool(**_pool_kwargs())
     return _pool
 
 
@@ -42,11 +50,20 @@ async def close_pool():
 
 
 async def list_documents() -> list[dict]:
-    pool = await get_pool()
-    rows = await pool.fetch(
-        "SELECT id::text, title, created_at, updated_at FROM documents ORDER BY updated_at DESC"
-    )
-    return [dict(r) for r in rows]
+    try:
+        pool = await get_pool()
+        rows = await pool.fetch(
+            "SELECT id::text, title, created_at, updated_at FROM documents ORDER BY updated_at DESC"
+        )
+        return [dict(r) for r in rows]
+    except TimeoutError:
+        # Drop the pool and retry once to recover from transient network cold starts.
+        await close_pool()
+        pool = await get_pool()
+        rows = await pool.fetch(
+            "SELECT id::text, title, created_at, updated_at FROM documents ORDER BY updated_at DESC"
+        )
+        return [dict(r) for r in rows]
 
 
 async def create_document(title: str) -> dict:
