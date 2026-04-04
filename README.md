@@ -116,6 +116,15 @@ npm run dev
 
 App should be available at `http://localhost:5173`.
 
+## Deployment
+
+The project is deployed as two services:
+
+- Frontend: Vercel at https://noteus-mu.vercel.app/
+- Backend: Render at https://noteus.onrender.com
+
+The frontend talks to the backend over the Render API and WebSocket endpoints.
+
 ## Technical Requirements Mapping
 
 - WebSocket-based real-time communication: implemented via FastAPI WebSocket endpoints
@@ -126,9 +135,9 @@ App should be available at `http://localhost:5173`.
 
 ## Submission Requirements
 
-- Live deployed URL: `<add-url>`
-- GitHub repository: `<add-repo-link>`
-- Video demo URL: `<add-youtube-or-drive-link>`
+- Live deployed URL: https://noteus-mu.vercel.app/
+- GitHub repository: https://github.com/priyajitbiswal/noteus
+- Video demo URL: https://drive.google.com/file/d/1f4iUk4msbHVMuIliTiwG_PWiIkOjNysN/view?usp=drive_link
 
 ## Scoring Rubric Alignment
 
